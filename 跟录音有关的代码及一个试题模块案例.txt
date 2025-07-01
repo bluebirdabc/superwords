@@ -1,0 +1,750 @@
+// src/services/recorder.js
+import { useTestStore } from '@/store/test'
+
+/**
+ * 统一、可复用的录音服务（优化移动端二次录音/播放问题）
+ * --------------------------------------------------
+ * ✅ 核心修改：
+ *   • 强制每次录音时重新获取新流（避免移动端复用旧流导致的异常）
+ *   • 优先使用 audio/mp4 格式（兼容 iOS）
+ *   • 强制重置 MediaRecorder 实例（避免状态残留）
+ * --------------------------------------------------
+ */
+export const RecorderService = {
+  /* 内部状态 ------------------------------------------------------ */
+  _recorder   : null,   // 当前 MediaRecorder 实例
+  _chunks     : [],     // 缓存的音频数据
+  _stream     : null,   // 复用的 MediaStream（修改：每次重新获取新流）
+  isRecording : false,  // 录音中？
+
+  /* 保证拿到一条“新鲜”的音频流（修改：强制获取新流） ---------------------------------- */
+  async _getFreshStream () {
+    const store = useTestStore()
+
+    // 关闭旧流的 track（关键！避免移动端复用旧流）
+    if (this._stream) {
+      this._stream.getAudioTracks().forEach(track => track.stop())
+      this._stream = null
+    }
+
+    // 重新申请权限并获取新流（依赖 test.js 中恢复的 ensureMicAccess）
+    await store.ensureMicAccess()
+    this._stream = store.micStream
+    return this._stream
+  },
+
+  /* 创建（或复用）MediaRecorder（修改：优先 audio/mp4 格式） ---------------------------------- */
+  async _prepareRecorder () {
+    // 若已存在且处于 idle 状态，可继续复用（但实际因 _getFreshStream 强制新流，此条件可能很少触发）
+    if (this._recorder && this._recorder.state === 'inactive') return
+
+    const stream = await this._getFreshStream()
+
+    // 调整 mime 顺序：优先使用 audio/mp4（iOS 友好格式）
+    const mime = [
+      'audio/mp4',         // 新增：提前到首位
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus'
+    ].find(t => MediaRecorder.isTypeSupported(t)) || ''
+
+    this._recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {})
+
+    // 收集数据块（原有逻辑不变）
+    this._recorder.ondataavailable = e => {
+      if (e.data.size) this._chunks.push(e.data)
+    }
+  },
+
+  /* -------------------------- 公开方法 -------------------------- */
+  /** 开始录音（修改：强制重置 recorder） */
+  async start () {
+    if (this.isRecording) {
+      console.warn('[Recorder] already recording')
+      return
+    }
+    this._chunks = []
+
+    // 强制销毁旧 recorder（避免状态残留）
+    this._recorder = null
+
+    try {
+      await this._prepareRecorder()
+      this._recorder.start()
+      this.isRecording = true
+    } catch (e) {
+      /** 某些 iOS 15–16 机型偶发 NotSupportedError，
+       *  动态重置 stream & recorder 再试一次（原有逻辑保留） */
+      if (e.name === 'NotSupportedError') {
+        console.warn('[Recorder] NotSupportedError – retry with fresh stream')
+        this._recorder = null
+        this._stream   = null
+        await this._prepareRecorder()
+        this._recorder.start()
+        this.isRecording = true
+      } else {
+        throw e
+      }
+    }
+  },
+
+  /** 停止录音并返回 { blob, url, type }（原有逻辑不变） */
+  stop () {
+    return new Promise((resolve, reject) => {
+      if (!this.isRecording || !this._recorder) return resolve(null)
+
+      this._recorder.onstop = () => {
+        const blob = new Blob(this._chunks, { type: this._recorder.mimeType })
+
+        /* 关键：不关闭 stream track（但因 _getFreshStream 会强制关闭旧流，此处无需额外处理） */
+        this.isRecording = false
+        this._recorder   = null
+        this._chunks     = []
+
+        resolve({
+          blob,
+          url : URL.createObjectURL(blob),
+          type: blob.type
+        })
+      }
+
+      this._recorder.onerror = evt => {
+        this._recorder.onerror = null
+        reject(evt.error)
+      }
+
+      this._recorder.stop()
+    })
+  }
+}
+
+——————————————————————————
+
+/* ------------------------------------------------
+   * 下面是UnifiedRecorder.vue的代码
+   * ------------------------------------------------*/
+
+<!-- src/components/common/UnifiedRecorder.vue -->
+<template>
+  <div class="oral-interaction-area">
+    <!-- ① Idle -->
+    <div v-if="uiState === 'idle'" class="state-idle">
+      <img :src="icons.mic" class="mic-lg" @click="toggleRecording" alt="mic">
+      <p>点击左侧按钮<br>开始录音</p>
+    </div>
+
+    <!-- ② Recording -->
+    <div v-else-if="uiState === 'recording'" class="state-recording">
+      <img :src="icons.stop" class="stop-icon" @click="toggleRecording" alt="stop">
+      <div class="countdown">
+        <span v-for="d in timerDigits" :key="d+Math.random()" class="digit">{{d}}</span>
+      </div>
+    </div>
+
+    <!-- ③ Stopped -->
+    <div v-else class="state-finished">
+      <img :src="icons.mic"  class="mic-sm" @click="toggleRecording" alt="rec-again">
+      <p>录音结束<br>重录或重听</p>
+      <img :src="isPlaying ? icons.stopPlay : icons.play"
+           class="play-icon"
+           @click="togglePlay"
+           :alt="isPlaying ? '停止播放' : '播放录音'">
+    </div>
+
+    <audio ref="playerEl" @ended="onPlayEnded" />
+
+    <p v-if="errMsg" class="err">{{ errMsg }}</p>
+  </div>
+</template>
+
+<script setup>
+/* -------------------------------------------------- */
+/* Imports                                            */
+/* -------------------------------------------------- */
+import { ref, computed, onUnmounted } from 'vue'
+import { useMicStore }    from '@/store/microphone'  // 注意：若项目中已删除此store，需调整为 useTestStore
+import { RecorderService} from '@/services/recorder.js'
+
+/* -------------------------------------------------- */
+/* Icons（和以前一样，只是集中到一个对象）            */
+/* -------------------------------------------------- */
+const icons = {
+  mic      : 'https://static.bluebirdabc.com/ai-agent/img/tasks/65b64131c75131470060b163a842ea1ed86fb56d.png',
+  play     : 'https://static.bluebirdabc.com/ai-agent/img/tasks/8e0a8ab174123e596ec1beb7a3b8d0ccc8d59ddb.png',
+  stopPlay : 'https://static.bluebirdabc.com/ai-agent/img/tasks/c9246cf7d23413a2e21183e7fad6f79a54867cba.png',
+  stop     : 'https://static.bluebirdabc.com/ai-agent/img/tasks/eca4f1a182cae877044706bb77972d58a1fe90c3.png'
+}
+
+/* -------------------------------------------------- */
+/* Reactive State                                     */
+/* -------------------------------------------------- */
+const MAX_SEC   = 30
+const uiState   = ref('idle')            // idle | recording | stopped
+const timeLeft  = ref(MAX_SEC)
+const isPlaying = ref(false)
+const errMsg    = ref('')
+const blobRef   = ref(null)
+
+let timerId   = null
+let audioInst = null  // 音频实例（修改：严格管理生命周期）
+let currentAudioUrl = null  // 新增：记录当前播放的 URL，用于释放
+
+const mic = useMicStore()  // 注意：若项目中已删除此store，需改为 useTestStore().micStream
+const emit = defineEmits(['record-complete'])
+
+/* -------------------------------------------------- */
+/* Record / Stop                                      */
+/* -------------------------------------------------- */
+async function toggleRecording () {
+  uiState.value === 'recording'
+    ? await finishRec()
+    : await startRec()
+}
+
+async function startRec () {
+  try {
+    // 注意：若项目中已删除 useMicStore，需改为从 useTestStore 获取权限
+    if (!mic.isGranted) await mic.ensureMicAccess()
+    await RecorderService.start()              // 若失败内部会自动 retry
+    blobRef.value = null  // 清空旧录音数据（关键！避免重录后播放旧数据）
+    uiState.value = 'recording'
+    startTimer()
+  } catch (e) {
+    console.error(e)
+    errMsg.value = e.message || '无法开始录音'
+  }
+}
+
+async function finishRec () {
+  clearInterval(timerId)
+  try {
+    const res = await RecorderService.stop()
+    uiState.value = res ? 'stopped' : 'idle'
+    if (res) {
+      blobRef.value = res.blob  // 存储新录音数据
+      emit('record-complete', res.blob)
+    }
+  } catch (e) {
+    console.error(e)
+    errMsg.value = e.message || '停止录音失败'
+    uiState.value = 'idle'
+  }
+}
+
+/* -------------------------------------------------- */
+/* Countdown                                          */
+/* -------------------------------------------------- */
+function startTimer () {
+  timeLeft.value = MAX_SEC
+  timerId = setInterval(() => {
+    timeLeft.value--
+    if (timeLeft.value === 0) finishRec()
+  }, 1000)
+}
+const timerDigits = computed(() =>
+  `00:${String(timeLeft.value).padStart(2,'0')}`.split('')
+)
+
+/* -------------------------------------------------- */
+/* Play / Stop Play（关键修改！解决二次播放音量问题） */
+/* -------------------------------------------------- */
+function togglePlay () {
+  if (!blobRef.value) return
+  isPlaying.value ? stopPlay() : play()
+}
+
+function play () {
+  stopPlay()  // 先停止旧播放（关键！避免实例冲突）
+  const url = URL.createObjectURL(blobRef.value)
+  currentAudioUrl = url  // 记录当前 URL
+
+  audioInst = new Audio(url)
+  audioInst.volume = 1  // 确保音量最大（关键！解决二次播放音量骤减）
+  audioInst.play().catch(err => {
+    console.error('播放失败:', err)
+    isPlaying.value = false
+  })
+
+  isPlaying.value = true
+  // 播放结束后自动释放资源
+  audioInst.onended = () => {
+    stopPlay()
+    URL.revokeObjectURL(url)  // 释放 URL（避免内存泄漏）
+    currentAudioUrl = null
+  }
+}
+
+function stopPlay () {
+  if (audioInst) {
+    audioInst.pause()
+    audioInst.src = ''  // 清空源（关键！销毁实例）
+    audioInst = null    // 销毁实例（避免复用残留状态）
+  }
+  if (currentAudioUrl) {
+    URL.revokeObjectURL(currentAudioUrl)  // 手动释放 URL（关键！）
+    currentAudioUrl = null
+  }
+  isPlaying.value = false
+}
+
+function onPlayEnded () { isPlaying.value = false }
+
+/* -------------------------------------------------- */
+/* Cleanup（关键修改！清理媒体流）                     */
+/* -------------------------------------------------- */
+onUnmounted(() => {
+  clearInterval(timerId)
+  stopPlay()  // 停止播放并释放资源
+  if (RecorderService.isRecording) {
+    RecorderService.stop()  // 停止录音
+  }
+  // 关闭 RecorderService 的流（避免移动端残留）
+  if (RecorderService._stream) {
+    RecorderService._stream.getAudioTracks().forEach(track => track.stop())
+    RecorderService._stream = null
+  }
+})
+</script>
+
+<style scoped>
+/* —— 样式基本不变，类名稍作统一 —— */
+.oral-interaction-area{width:100%;max-width:90vw;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:3vw}
+.state-idle,.state-finished{display:flex;align-items:center;gap:3vw;color:#555;text-align:center;line-height:1.4;flex-wrap:wrap}
+.state-recording{display:flex;align-items:center;gap:3vw;flex-wrap:wrap}
+.mic-lg,.mic-sm,.play-icon,.stop-icon{height:20vw;max-height:100px;width:auto}
+.mic-sm{height:12vw;max-height:60px}
+.countdown{display:flex;gap:1vw;font-family:'Courier New',monospace;font-size:6vw;font-weight:bold;color:#333}
+.digit{background:#e0e0e0;padding:1vw 2vw;border-radius:5px;min-width:8vw;text-align:center}
+.digit:nth-child(3){background:none}
+.err{color:#e74c3c;font-size:.9rem;text-align:center;margin-top:6px}
+</style>
+————————————————————
+/* ------------------------------------------------
+   * 下面是YY06的代码
+   * ------------------------------------------------*/
+
+<!-- src/components/questions/QuestionYY06.vue -->
+<template>
+  <div class="question-yy06">
+    <h3>{{ question.data.title || '选择并复述' }}</h3>
+
+    <!-- 题干句子（左对齐、不截断单词） -->
+    <p class="sentence">
+      {{ sentenceParts.before }}
+      <span class="placeholder"></span>
+      {{ sentenceParts.after }}
+    </p>
+
+    <!-- 选项列表 -->
+    <div class="options-list-display">
+      <div
+        v-for="(optionText, key) in question.data.options"
+        :key="key"
+        class="option-item-display"
+      >
+        <span class="option-key">{{ key }}</span>
+        <span class="option-text">{{ optionText }}</span>
+      </div>
+    </div>
+
+    <!-- 统一录音控件 -->
+    <UnifiedRecorder @record-complete="onRecordComplete" />
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, watch } from 'vue'
+import UnifiedRecorder               from '@/components/common/UnifiedRecorder.vue'
+
+/* ---------- props / emit ---------- */
+const props = defineProps({ question: { type: Object, required: true } })
+const emit  = defineEmits(['submit-answer', 'update-submit-status'])
+
+/* ---------- 题干拆分 ---------- */
+const sentenceParts = computed(() => {
+  const parts = (props.question.data.text || '').split('()')
+  return { before: parts[0] || '', after: parts[1] || '' }
+})
+
+/* ---------- 录音结果 ---------- */
+const recordedBlob = ref(null)
+const onRecordComplete = blob => { recordedBlob.value = blob }
+
+const isSubmitDisabled = computed(() => recordedBlob.value === null)
+const submit = () => {
+  emit('submit-answer', { type: 'YY06', answer: { recording: recordedBlob.value } })
+}
+
+/* 把提交按钮的可用状态回传给父组件 */
+watch(isSubmitDisabled, disabled => {
+  emit('update-submit-status', { disabled, action: submit })
+}, { immediate: true })
+</script>
+
+<style scoped>
+/* 容器整体：左对齐排版 */
+.question-yy06 {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;  /* ← 左对齐 */
+  gap: 20px;
+}
+
+/* 题干段落 */
+.sentence {
+  font-size: 1.6rem;
+  line-height: 1.7;
+  text-align: left;
+  word-break: normal;      /* 整词换行 */
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.placeholder {
+  display: inline-block;
+  width: 120px;            /* ⬅︎ 可按需调整，控制下划线长度 */
+  border-bottom: 2px solid #333;
+  margin: 0 6px;
+  vertical-align: baseline;
+}
+
+/* 选项容器 */
+.options-list-display {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  padding: 10px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.option-item-display {
+  display: flex;
+  align-items: center;
+  font-size: 1.2rem;
+}
+
+.option-key {
+  font-weight: 600;
+  margin-right: 6px;
+  color: #888;
+}
+</style>
+
+<style scoped>
+.question-yy06 {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.sentence {
+  font-size: 1.8rem;
+  text-align: center;
+  line-height: 1.6;
+  font-weight: bold;
+}
+
+.placeholder {
+  display: inline-block;
+  border-bottom: 2px solid #333;
+  width: 100px;
+  vertical-align: bottom;
+  margin: 0 8px;
+}
+
+.options-list-display {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 15px;
+  padding: 10px;
+  background-color: #fafafa;
+  border-radius: 8px;
+}
+
+.option-item-display {
+  display: flex;
+  align-items: center;
+  font-size: 1.1rem;
+}
+
+.option-key {
+  font-weight: bold;
+  margin-right: 8px;
+  color: #888;
+}
+</style>
+
+——————————————————
+
+/* ------------------------------------------------
+   * 下面是test.js的代码
+   * ------------------------------------------------*/
+
+// src/store/test.js
+import { defineStore } from 'pinia'
+import { useRouter } from 'vue-router'
+
+/**
+ * 试题模块状态管理（恢复麦克风流管理）
+ * --------------------------------------------------
+ * ✅ 核心修改：
+ *   • 新增 `micStream` 状态存储当前媒体流
+ *   • 新增 `ensureMicAccess` 方法申请麦克风权限并获取流
+ *   • 兼容原有试题模块逻辑（packet、currentQuestionIndex 等）
+ * --------------------------------------------------
+ */
+export const useTestStore = defineStore('test', {
+  /* 状态 ------------------------------------------------------ */
+  state: () => ({
+    // 原有试题相关状态
+    packet: null,                // 当前试题包数据
+    currentQuestionIndex: 0,     // 当前题目索引（从0开始）
+    userAnswers: {},             // 用户答案记录（key: 题目id，value: 答案）
+    
+    // 新增：麦克风流管理状态（解决移动端二次录音问题）
+    micStream: null,             // 当前持有的媒体流（MediaStream实例）
+  }),
+
+  /* 获取器（原有逻辑不变） --------------------------------------- */
+  getters: {
+    // 当前题目
+    currentQuestion(state) {
+      return state.packet?.questions?.[state.currentQuestionIndex] || null
+    },
+    // 是否最后一题
+    isLastQuestion(state) {
+      return state.currentQuestionIndex === (state.packet?.questions?.length || 0) - 1
+    }
+  },
+
+  /* 动作（新增麦克风权限管理 + 原有试题逻辑） --------------------- */
+  actions: {
+    /**
+     * 申请麦克风权限并获取媒体流（关键！解决移动端二次录音问题）
+     * @throws {Error} 权限申请失败时抛出异常
+     */
+    async ensureMicAccess() {
+      // 检查旧流是否有效（避免重复申请）
+      if (this.micStream) {
+        const tracks = this.micStream.getAudioTracks()
+        // 若存在且track处于活跃状态，直接返回
+        if (tracks.length > 0 && tracks[0].readyState === 'live') {
+          return
+        }
+      }
+
+      // 重新申请权限和流
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        this.micStream = stream  // 存储新流
+      } catch (err) {
+        throw new Error(`麦克风权限申请失败: ${err.message}`)
+      }
+    },
+
+    /**
+     * 加载试题包（原有逻辑不变）
+     * @param {string} packetId 试题包ID
+     */
+    async fetchPacket(packetId) {
+      try {
+        const res = await fetch(`/api/packets/${packetId}`)
+        const data = await res.json()
+        this.packet = data
+      } catch (err) {
+        console.error('加载试题包失败:', err)
+        throw new Error('试题包加载失败，请重试')
+      }
+    },
+
+    /**
+     * 提交答案并跳转到下一题（原有逻辑不变）
+     * @param {string} questionId 题目ID
+     * @param {any} answer 用户答案
+     */
+    submitAnswerAndGoNext(questionId, answer) {
+      this.userAnswers[questionId] = answer
+      if (!this.isLastQuestion) {
+        this.currentQuestionIndex++
+      } else {
+        const router = useRouter()
+        router.push('/test/result')
+      }
+    }
+  }
+})——————————————————
+
+/* ------------------------------------------------
+   * 原microphone.js文件已经被删除
+   * ------------------------------------------------*/
+
+——————————————————
+
+/* ------------------------------------------------
+   * 下面是StartView.vue的代码
+   * ------------------------------------------------*/
+
+<template>
+  <div class="question-content start-view-content">
+    <h2 class="main-title">万词背单词--请开始今天的背诵任务</h2>
+    <p class="prompt-text">请点击下方动画，进入测试</p>
+    <div class="image-button-container" @click="startTest" :class="{ disabled: isLoading }">
+      <img src="https://static.bluebirdabc.com/ai-agent/img/tasks/28594e457c85b74f013f5596bef4188a9bd6e73a.gif" alt="开始测试">
+      <div v-if="isLoading || statusMessage" class="status-overlay">
+        <p :style="{ color: statusColor }">{{ statusMessage || '准备中...' }}</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { useRouter } from 'vue-router';
+import { useTestStore } from '@/store/test'; // 新增
+
+const router = useRouter();
+const testStore = useTestStore(); // 新增
+const isLoading = ref(false);
+const statusMessage = ref('');
+const statusColor = ref('black');
+
+async function startTest() {
+  if (isLoading.value) return;
+  isLoading.value = true;
+  statusMessage.value = '正在请求麦克风权限，请允许...';
+  statusColor.value = 'black';
+
+  try {
+    await testStore.ensureMicAccess();
+    sessionStorage.setItem('micGranted', '1');
+
+    statusMessage.value = '授权成功，即将进入测试...';
+    setTimeout(() => {
+      router.push('/testing');
+    }, 800);
+  } catch (error) {
+    statusMessage.value = `⚠️ ${error.message || '麦克风授权失败，无法进行语音题。'}`;
+    statusColor.value = 'red';
+    setTimeout(() => {
+      isLoading.value = false;
+      statusMessage.value = '';
+    }, 2000);
+  }
+}
+
+onMounted(() => {
+  const audioUrl = "https://static.bluebirdabc.com/lesson/material/aif8j9q38t4q78y4/855/4ef85684bea6ddfcde6ad6efdcb22662dfb1ace4.mp3";
+  const staticImg = "https://static.bluebirdabc.com/ai-agent/img/tasks/37cec56a342d0c475dcebd44655c21489ace9560.png";
+  const gifImg = "https://static.bluebirdabc.com/ai-agent/img/tasks/f985225306f2427cb225803dfb947fea8cd7f7b1.gif";
+  const gifDuration = 2000;
+  const fadeDuration = 400;
+  const audioVolume = 0.2;
+
+  const overlay = document.createElement("div");
+  overlay.style.cssText = `position:fixed; left:0; top:0; width:100vw; height:100vh; z-index:9999999; background:rgba(0,0,0,0.45); display:flex; justify-content:center; align-items:center; opacity:1; transition:opacity ${fadeDuration}ms;`;
+
+  const introImg = document.createElement("img");
+  introImg.src = staticImg;
+  introImg.style.cssText = `width:440px; height:440px; object-fit:cover; border-radius:12px; box-shadow:0 2px 24px #0006; cursor:pointer; background:#fff;`;
+  overlay.appendChild(introImg);
+
+  const audio = document.createElement("audio");
+  audio.src = audioUrl;
+  audio.loop = true;
+  audio.preload = "auto";
+  audio.volume = audioVolume;
+  audio.style.display = "none";
+  document.body.appendChild(audio);
+
+  document.body.appendChild(overlay);
+
+  let triggered = false;
+  const startAnimation = () => {
+    if (triggered) return;
+    triggered = true;
+    audio.play().catch(() => {});
+    introImg.src = gifImg;
+    introImg.style.cursor = "default";
+    setTimeout(() => {
+      overlay.style.opacity = "0";
+    }, gifDuration);
+    setTimeout(() => {
+      overlay.remove();
+      audio.remove();
+    }, gifDuration + fadeDuration);
+    overlay.removeEventListener("click", startAnimation);
+    introImg.removeEventListener("click", startAnimation);
+  };
+  overlay.addEventListener("click", startAnimation);
+  introImg.addEventListener("click", startAnimation);
+
+  window.__removeIntroOverlay = () => {
+    overlay.remove();
+    audio.remove();
+  };
+});
+
+onBeforeUnmount(() => {
+  if (window.__removeIntroOverlay) window.__removeIntroOverlay();
+});
+</script>
+
+<style scoped>
+.start-view-content {
+  justify-content: space-around;
+  padding-top: 5vh;
+  padding-bottom: 5vh;
+  gap: 2rem;
+}
+.main-title {
+  font-size: 2rem;
+  color: #333;
+  text-align: center;
+}
+.prompt-text {
+  font-size: 1.2rem;
+  color: #666;
+}
+.image-button-container {
+  position: relative;
+  cursor: pointer;
+  border-radius: 20px;
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s;
+}
+.image-button-container:hover:not(.disabled) {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+.image-button-container img {
+  display: block;
+  max-width: 300px;
+  width: 100%;
+  height: auto;
+  border-radius: 20px;
+}
+.image-button-container.disabled {
+  cursor: not-allowed;
+}
+.status-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 20px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  text-align: center;
+  padding: 20px;
+}
+</style>
+
+

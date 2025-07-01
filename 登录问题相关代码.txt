@@ -1,0 +1,708 @@
+<template>
+  <div class="background-grid"></div>
+  <div class="main-card-background"></div>
+  <div class="main-card-wrapper">
+    <!-- 顶栏：模拟浏览器窗口 -->
+    <header class="card-header">
+      <div class="window-buttons">
+        <span class="btn red"></span>
+        <span class="btn yellow"></span>
+        <span class="btn green"></span>
+      </div>
+      <div class="header-title">
+        Standardized English Proficiency Exam
+      </div>
+      <div class="header-right">
+        <GlobalHeader />
+      </div>
+    </header>
+
+    <!-- 内容区 -->
+    <div class="card-content">
+      <router-view @update-submit-status="updateSubmitStatus" />
+      <div v-if="isTestingPage" class="footer-submit-area">
+        <div
+          class="image-submit-button"
+          :class="{ disabled: isSubmitDisabled }"
+          @click="triggerSubmit"
+        >
+          <img :src="submitButtonImage" alt="提交" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 登录注册弹窗 -->
+  <AuthDialog
+    v-model="ui.authDialogVisible"
+    :mode="ui.authDialogMode"
+    @login-success="onLoginSuccess"
+  />
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import GlobalHeader from '@/components/common/GlobalHeader.vue'
+import AuthDialog from '@/components/common/AuthDialog.vue'
+import { useUiStore } from '@/store/ui'
+import { useAuthStore } from '@/services/auth'  // ✅ 改为引入 store
+
+const ui = useUiStore()
+const auth = useAuthStore() // ✅ 实例化 auth store
+const route = useRoute()
+
+function onLoginSuccess(payload) {
+  ui.closeAuthDialog()
+  ui.setLoginInfo(payload)
+  localStorage.setItem('token', payload.token)
+  localStorage.setItem('userId', payload.userId)
+}
+
+const isTestingPage = computed(() => route.path === '/testing')
+const isSubmitDisabled = ref(true)
+const submitAction = ref(null)
+
+function updateSubmitStatus({ disabled, action }) {
+  isSubmitDisabled.value = disabled
+  submitAction.value = action
+}
+
+let sfxCoolDown = false
+const sfxSrc =
+  'https://static.bluebirdabc.com/lesson/material/aif8j9q38t4q78y4/855/bdd3410079912e0947fe25843d62f0e63ac131c2.mp3'
+
+function triggerSubmit() {
+  if (isSubmitDisabled.value) return
+  if (!sfxCoolDown) {
+    sfxCoolDown = true
+    new Audio(sfxSrc).play().catch(() => {})
+    setTimeout(() => (sfxCoolDown = false), 300)
+  }
+  if (typeof submitAction.value === 'function') submitAction.value()
+}
+
+const submitButtonImages = {
+  active: 'https://static.bluebirdabc.com/ai-agent/img/tasks/4066faff57c614344d95b1c46f0d74cb2022fd13.png',
+  disabled: 'https://static.bluebirdabc.com/ai-agent/img/tasks/4126b680c6671d6cd039fa25aedc022d49cd3815.png'
+}
+const submitButtonImage = computed(() =>
+  isSubmitDisabled.value ? submitButtonImages.disabled : submitButtonImages.active
+)
+
+// ✅ 自动通过 token 登录（使用 auth store 方法）
+onMounted(async () => {
+  const query = new URLSearchParams(window.location.search)
+  const token = query.get('token')
+  const userId = query.get('user_id')
+
+  if (token && userId) {
+    try {
+      await auth.loginWithToken({ token, userId })
+      onLoginSuccess({ token, userId })
+    } catch (err) {
+      console.error('❌ Token 自动登录失败:', err.message)
+    }
+  }
+})
+</script>
+
+
+<style>
+/* 样式保持不变 */
+body {
+  font-family: 'SimHei', 'Microsoft YaHei', sans-serif;
+  background: #edf5fb;
+  margin: 0;
+}
+.background-grid {
+  position: fixed;
+  inset: 0;
+  background: #edf5fb;
+  z-index: 0;
+}
+.main-card-background {
+  position: absolute;
+  top: 40px;
+  left: 40px;
+  width: 90vw;
+  max-width: 1050px;
+  height: 82vh;
+  max-height: 690px;
+  background: #84d600;
+  border-radius: 30px;
+  transform: rotate(-4deg);
+  z-index: 1;
+  box-shadow: 0 8px 24px #0001;
+}
+.main-card-wrapper {
+  position: relative;
+  width: 90vw;
+  max-width: 1050px;
+  min-height: 600px;
+  margin: 60px auto 0 auto;
+  background: #fff;
+  border-radius: 26px;
+  z-index: 2;
+  box-shadow: 0 8px 36px #0002;
+  display: flex;
+  flex-direction: column;
+}
+.card-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 60px;
+  background: #6fe3c1;
+  border-top-left-radius: 26px;
+  border-top-right-radius: 26px;
+  box-sizing: border-box;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.window-buttons {
+  display: flex;
+  gap: 7px;
+  margin-right: 18px;
+}
+.btn {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  margin-top: 2px;
+}
+.btn.red { background: #ff6565; }
+.btn.yellow { background: #ffc940; }
+.btn.green { background: #54e060; }
+.header-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.7rem;
+  font-weight: bold;
+  color: #fff;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 10px #0002;
+  font-family: 'Comic Sans MS', 'Baloo 2', 'Microsoft YaHei', sans-serif;
+  text-align: center;
+}
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+.card-content {
+  flex: 1;
+  padding: 36px 5vw 18px 5vw;
+  display: flex;
+  flex-direction: column;
+}
+.footer-submit-area {
+  padding: 20px;
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid #eee;
+  background-color: #fff;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+.image-submit-button { cursor: pointer; }
+.image-submit-button img {
+  height: 100px;
+  width: auto;
+  transition: transform 0.2s ease;
+}
+.image-submit-button:not(.disabled) img:hover {
+  transform: scale(1.15);
+}
+.image-submit-button.disabled { cursor: not-allowed; }
+@media (max-width: 600px) {
+  .main-card-background, .main-card-wrapper {
+    width: 98vw;
+    min-width: 0;
+    max-width: 100vw;
+    height: auto;
+    min-height: 80vh;
+    margin: 2vw auto 0 auto;
+    border-radius: 18px;
+  }
+  .main-card-background { top: 15px; left: 10px; border-radius: 18px; }
+  .main-card-wrapper { border-radius: 18px; }
+  .card-header { border-top-left-radius: 18px; border-top-right-radius: 18px; padding: 0 12px; }
+  .card-content { padding: 18px 2vw 8px 2vw; }
+}
+</style>
+
+——————————————————————————
+
+// src/store/ui.js
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+
+export const useUiStore = defineStore('ui', () => {
+  // 登录弹窗
+  const authDialogVisible = ref(false)
+  const authDialogMode = ref('login') // 'login' or 'register'
+
+  // 登录状态
+  const isLoggedIn = ref(false)
+  const userInfo = ref(null)
+
+  // 设置登录信息
+  function setLoginInfo(data) {
+    isLoggedIn.value = true
+    userInfo.value = data
+  }
+
+  // 语言
+  const lang = ref('zh-CN')
+
+  // 打开弹窗
+  function showAuthDialog(mode = 'login') {
+    authDialogMode.value = mode
+    authDialogVisible.value = true
+  }
+
+  // 关闭弹窗
+  function closeAuthDialog() {
+    authDialogVisible.value = false
+  }
+
+  // 切换语言
+  function setLang(newLang) {
+    lang.value = newLang
+    // 可以在这里做 i18n 切换逻辑
+  }
+
+  return {
+    authDialogVisible,
+    authDialogMode,
+    isLoggedIn,
+    userInfo,
+    lang,
+    showAuthDialog,
+    closeAuthDialog,
+    setLang,
+    setLoginInfo
+  }
+})
+
+————————————————————————————————
+/* src\components\common\AuthDialog.vue的代码如下*/
+
+<!-- src/components/common/AuthDialog.vue -->
+<template>
+  <div v-if="modelValue" class="auth-dialog-backdrop" @click.self="close">
+    <div class="auth-dialog">
+      <h2>{{ mode === 'login' ? '用户登录' : '注册新账号' }}</h2>
+      <form @submit.prevent="handleSubmit">
+        <div class="form-group">
+          <label>账号</label>
+          <input
+            v-model.trim="username"
+            name="username"
+            type="text"
+            maxlength="32"
+            autocomplete="username"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input
+            v-model.trim="password"
+            name="password"
+            type="password"
+            maxlength="32"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <!-- 注册才需要昵称 -->
+        <div class="form-group" v-if="mode === 'register'">
+          <label>昵称</label>
+          <input
+            v-model.trim="nickname"
+            name="nickname"
+            type="text"
+            maxlength="16"
+            required
+          />
+        </div>
+        <!-- 错误提示 -->
+        <p class="form-error" v-if="errMsg">{{ errMsg }}</p>
+        <!-- 提交按钮 -->
+        <button type="submit" :disabled="submitting">
+          {{ submitting ? '提交中…' : mode === 'login' ? '登录' : '注册' }}
+        </button>
+      </form>
+      <!-- 页脚小链接 -->
+      <div class="dialog-footer">
+        <a v-if="mode==='login'" @click="setMode('register')">没有账号？去注册</a>
+        <a v-else @click="setMode('login')">已有账号？直接登录</a>
+      </div>
+      <span class="dialog-close" @click="close">×</span>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useAuthStore } from '@/services/auth.js'
+
+/* ---- props/emit ---- */
+const props = defineProps({
+  modelValue: Boolean,
+  mode: { type: String, default: 'login' }
+})
+const emit  = defineEmits(['update:modelValue', 'login-success'])
+
+/* ---- 本地状态 ---- */
+const mode        = ref(props.mode)
+const username    = ref('')
+const password    = ref('')
+const nickname    = ref('')
+const submitting  = ref(false)
+const errMsg      = ref('')
+
+/* ---- Store ---- */
+const auth = useAuthStore()
+
+/* ---- 方法 ---- */
+function close () {
+  emit('update:modelValue', false)
+  resetFields()
+}
+function resetFields () {
+  mode.value      = props.mode || 'login'
+  username.value  = ''
+  password.value  = ''
+  nickname.value  = ''
+  errMsg.value    = ''
+  submitting.value= false
+}
+function setMode(val) {
+  mode.value = val
+  errMsg.value = ''
+  password.value = ''
+}
+async function handleSubmit () {
+  if (!username.value || !password.value || (mode.value==='register' && !nickname.value)) {
+    errMsg.value = '请填写所有必填项'
+    return
+  }
+  submitting.value = true
+  errMsg.value     = ''
+  try {
+    if (mode.value === 'login') {
+      await auth.login({ username: username.value, password: password.value })
+    } else {
+      await auth.register({
+        username: username.value,
+        password: password.value,
+        nickname: nickname.value
+      })
+    }
+    emit('login-success')
+    close()
+  } catch (e) {
+    errMsg.value = e.message || '操作失败，请稍后重试'
+  } finally {
+    submitting.value = false
+  }
+}
+
+/* ---- ESC 关闭 ---- */
+function onKeydown (e) {
+  if (props.modelValue && e.key === 'Escape') close()
+}
+onMounted      (() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+watch(() => props.modelValue, val => { if (val) resetFields() })
+watch(() => props.mode, (val) => { if (props.modelValue) setMode(val) })
+</script>
+
+<style scoped>
+.auth-dialog-backdrop{
+  position:fixed;inset:0;z-index:10000;
+  background:rgba(0,0,0,.28);
+  display:flex;align-items:center;justify-content:center;
+}
+.auth-dialog{
+  background:#fff;border-radius:16px;min-width:340px;
+  padding:36px 32px 24px;box-shadow:0 8px 36px #0002;
+  position:relative;animation:fade .32s;
+}
+@keyframes fade{from{transform:scale(.9);opacity:0}}
+h2{margin:0 0 20px;text-align:center;font-size:1.35rem;color:#333}
+.form-group{margin-bottom:18px}
+.form-group label{font-size:1rem;color:#555;margin-bottom:4px;display:block}
+.form-group input{
+  width:100%;font-size:1rem;padding:8px 10px;border:1px solid #ccc;
+  border-radius:6px;box-sizing:border-box;margin-top:2px
+}
+.form-group input:focus{border-color:#69f;outline:none}
+.form-error{color:#e74c3c;font-size:.95em;margin-bottom:10px;text-align:center}
+button[type=submit]{
+  width:100%;padding:11px 0;font-size:1.1rem;border:none;
+  background:#3772ff;color:#fff;border-radius:7px;cursor:pointer;
+  margin-top:8px;font-weight:bold;transition:background .18s
+}
+button[disabled]{background:#b2c9ee;cursor:not-allowed}
+.dialog-footer{margin-top:14px;text-align:center}
+.dialog-footer a{color:#3772ff;font-size:.98em;cursor:pointer;text-decoration:underline;margin:0 8px}
+.dialog-close{
+  position:absolute;right:18px;top:14px;font-size:1.5em;color:#aaa;
+  cursor:pointer;user-select:none;transition:color .17s
+}
+.dialog-close:hover{color:#e74c3c}
+</style>
+
+
+————————————————————————————
+<!-- src/components/GlobalHeader.vue -->
+<template>
+  <div class="global-header">
+    <!-- 头像按钮 -->
+    <div class="header-avatar" @click="toggleMenu">
+      <img :src="avatarIcon" alt="user" />
+    </div>
+    <!-- 弹窗菜单 -->
+    <transition name="fade">
+      <div v-if="menuOpen" class="header-menu" @click.self="closeMenu">
+        <div class="menu-content">
+          <template v-if="!isLoggedIn">
+            <button class="menu-btn" @click="showLogin">登录</button>
+            <button class="menu-btn" @click="showRegister">注册</button>
+          </template>
+          <template v-else>
+            <div class="user-info">
+              <div class="user-name">
+                <span>{{ displayName }}</span>
+              </div>
+            </div>
+            <button class="menu-btn" @click="logout">退出登录</button>
+          </template>
+          <div class="menu-divider"></div>
+          <button class="menu-btn" @click="switchLang">
+            <span class="lang-icon"></span>{{ langLabel }}
+          </button>
+        </div>
+      </div>
+    </transition>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useUiStore }   from '@/store/ui'
+import { useAuthStore } from '@/services/auth'
+
+const ui = useUiStore()
+const auth = useAuthStore()
+const menuOpen = ref(false)
+
+const avatarIcon = 'https://static.bluebirdabc.com/ai-agent/img/tasks/fd9a61b7fd669ef8586e8d7ae2915dd5fb8c89b4.png'
+
+const isLoggedIn = computed(() => !!auth.user && !!auth.user.token)
+const displayName = computed(() => auth.user?.nickname || auth.user?.username || '未登录')
+const langLabel = computed(() => ui.lang === 'en' ? 'English' : '中文')
+
+function toggleMenu() { menuOpen.value = !menuOpen.value }
+function closeMenu()  { menuOpen.value = false }
+function showLogin()    { ui.showAuthDialog('login');    closeMenu() }
+function showRegister() { ui.showAuthDialog('register'); closeMenu() }
+function switchLang()   { ui.setLang(ui.lang === 'en' ? 'zh-CN' : 'en'); closeMenu() }
+function logout() {
+  auth.logout?.()
+  // 跳回首页
+  window.location.href = '/'
+  closeMenu()
+}
+// 自动点击外部关闭弹窗
+function handleClickOutside(e) {
+  const menu   = document.querySelector('.header-menu')
+  const avatar = document.querySelector('.header-avatar')
+  if (menuOpen.value && !menu?.contains(e.target) && !avatar?.contains(e.target)) {
+    closeMenu()
+  }
+}
+onMounted(() => window.addEventListener('mousedown', handleClickOutside))
+onBeforeUnmount(() => window.removeEventListener('mousedown', handleClickOutside))
+</script>
+
+<style scoped>
+.global-header {
+  position: absolute;
+  top: 18px; right: 26px;
+  z-index: 100;
+  user-select: none;
+}
+.header-avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #f4f8fb;
+  box-shadow: 0 2px 10px #0001;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1.5px solid #eee;
+  transition: box-shadow .2s;
+}
+.header-avatar img {
+  width: 60%; height: 60%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.header-avatar:hover { box-shadow: 0 4px 20px #0002; }
+
+.header-menu {
+  position: absolute;
+  right: 0;
+  top: 54px;
+  min-width: 148px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 6px 32px #0003;
+  padding: 10px 0 6px 0;
+  z-index: 1000;
+}
+.menu-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 18px 6px 18px;
+}
+.menu-btn {
+  appearance: none;
+  background: #f5f7fa;
+  border: none;
+  outline: none;
+  border-radius: 9px;
+  margin: 0 0 2px 0;
+  padding: 9px 0;
+  font-size: 1.08rem;
+  font-family: inherit;
+  color: #222;
+  cursor: pointer;
+  transition: background .18s;
+}
+.menu-btn:hover { background: #e6f0ff; }
+.menu-divider {
+  height: 1px;
+  background: #eef0f5;
+  margin: 7px 0;
+  border-radius: 2px;
+}
+.user-info {
+  text-align: center;
+  padding: 4px 0 2px 0;
+}
+.user-name {
+  font-size: 1.04em;
+  color: #2a2a2a;
+  margin-bottom: 3px;
+  font-weight: bold;
+  word-break: break-all;
+}
+/* 多语言地球icon */
+.lang-icon {
+  display: inline-block;
+  vertical-align: -3px;
+  margin-right: 7px;
+  width: 20px; height: 20px;
+  background: url('https://static.bluebirdabc.com/ai-agent/img/tasks/a3028eb8b4a6021cb80e0d55e2cf273056df8f69.png') no-repeat center/contain;
+}
+.fade-enter-active, .fade-leave-active { transition: opacity .19s; }
+.fade-enter-from, .fade-leave-to       { opacity: 0; }
+</style>
+
+————————————————————————————————
+
+// src/services/auth.js
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'  // ← 必须引入 computed!!
+
+// 本地缓存key
+const LOCAL_KEY = 'superwords-user'
+
+function loadUserFromLocal() {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref(loadUserFromLocal())
+
+  // 是否已登录
+  const isLoggedIn = computed(() => !!user.value && !!user.value.token)
+
+  // 登录（用户名+密码）
+  async function login({ username, password }) {
+    const url = 'https://readapi.bluebirdabc.com/user/login'
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+    const data = await res.json()
+    if (!res.ok || !data || !data.data || !data.data.token) {
+      throw new Error(data?.msg || '登录失败')
+    }
+    user.value = {
+      ...data.data,
+      username: data.data.username || username
+    }
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(user.value))
+  }
+
+  // 登录（userId + token）
+  function loginWithToken({ userId, token }) {
+    user.value = { userId, token }
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(user.value))
+  }
+
+  // 注册
+  async function register({ username, password, nickname }) {
+    const url = 'https://readapi.bluebirdabc.com/api/v1/user/register'
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, nickname })
+    })
+    const data = await res.json()
+    if (!res.ok || !data || !data.data || !data.data.token) {
+      throw new Error(data?.msg || '注册失败')
+    }
+    user.value = {
+      ...data.data,
+      username: data.data.username || username
+    }
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(user.value))
+  }
+
+  // 登出
+  function logout() {
+    user.value = null
+    localStorage.removeItem(LOCAL_KEY)
+  }
+
+  return {
+    user,
+    isLoggedIn,
+    login,
+    loginWithToken, // ← ✅ 别忘了在返回值中暴露
+    register,
+    logout
+  }
+})
+

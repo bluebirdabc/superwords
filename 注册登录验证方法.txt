@@ -1,0 +1,797 @@
+<!-- ────────────────────────────────────────────────
+     src/views/StartView.vue
+     背景音乐只在离开本页 / 进入测试时停止
+────────────────────────────────────────────────── -->
+<template>
+  <div class="question-content start-view-content">
+    <h2 class="main-title">万词背单词——请开始今天的背诵任务</h2>
+    <p class="prompt-text">请点击下方动画，进入测试</p>
+
+    <!-- ① 欢迎遮罩：静态图 → GIF -->
+    <div v-if="showWelcomeOverlay" class="welcome-overlay">
+      <!-- 静态图（等待点击） -->
+      <img
+        v-if="!isPlayingWelcomeGif"
+        class="welcome-static"
+        :src="staticImg"
+        alt="欢迎"
+        @click="playWelcomeGif"
+      />
+      <!-- 动图（播放 2 s 后淡出） -->
+      <img
+        v-else
+        class="welcome-gif"
+        :src="welcomeGif"
+        alt="欢迎动画"
+      />
+    </div>
+
+    <!-- ② 主页面：开始测试按钮 -->
+    <div
+      v-if="!showWelcomeOverlay"
+      class="image-button-container"
+      @click="startTest"
+      :class="{ disabled: isLoading }"
+    >
+      <img :src="startGif" alt="开始测试" />
+      <!-- 加载 / 错误提示 -->
+      <div v-if="isLoading || statusMessage" class="status-overlay">
+        <p :style="{ color: statusColor }">
+          {{ statusMessage || '准备中…' }}
+        </p>
+      </div>
+    </div>
+
+    <!-- ③ 登录弹窗（v-model 控制，兼容全局入口） -->
+    <AuthDialog
+      v-model="authDialogVisible"
+      @login-success="onLoginSuccess"
+    />
+  </div>
+</template>
+
+<script setup>
+import { ref, onBeforeUnmount, nextTick } from 'vue'
+import { useRouter }    from 'vue-router'
+import { useTestStore } from '@/store/test'
+import { useAuthStore } from '@/services/auth'
+import AuthDialog       from '@/components/common/AuthDialog.vue'
+
+/* -------------- 1. 资源常量 ---------------- */
+const staticImg  = 'https://static.bluebirdabc.com/ai-agent/img/tasks/37cec56a342d0c475dcebd44655c21489ace9560.png'
+const welcomeGif = 'https://static.bluebirdabc.com/ai-agent/img/tasks/f985225306f2427cb225803dfb947fea8cd7f7b1.gif'
+const startGif   = 'https://static.bluebirdabc.com/ai-agent/img/tasks/a524ad22824f549802316f1cd93aa0837e630b8b.gif'
+const AUDIO_URL  = 'https://static.bluebirdabc.com/lesson/material/aif8j9q38t4q78y4/855/4ef85684bea6ddfcde6ad6efdcb22662dfb1ace4.mp3'
+
+/* -------------- 2. 基础状态 ---------------- */
+const router     = useRouter()
+const testStore  = useTestStore()
+const authStore  = useAuthStore()
+
+const showWelcomeOverlay  = ref(true)
+const isPlayingWelcomeGif = ref(false)
+
+const isLoading      = ref(false)
+const statusMessage  = ref('')
+const statusColor    = ref('black')
+
+const authDialogVisible = ref(false)
+let   pendingStart      = false   // 登录成功后继续 startTest
+
+/* -------------- 3. 背景音乐 ---------------- */
+let bgAudioEl = null
+function playBgAudio () {
+  if (!bgAudioEl) {
+    bgAudioEl          = document.createElement('audio')
+    bgAudioEl.src      = AUDIO_URL
+    bgAudioEl.loop     = true
+    bgAudioEl.preload  = 'auto'
+    bgAudioEl.volume   = 0.2
+    document.body.appendChild(bgAudioEl)
+  }
+  // iOS 必须在用户手势里触发
+  bgAudioEl.play().catch(() => {})
+}
+function stopAndRemoveBgAudio () {
+  if (bgAudioEl) {
+    bgAudioEl.pause()
+    bgAudioEl.src = ''
+    bgAudioEl.remove()
+    bgAudioEl = null
+  }
+}
+
+/* -------------- 4. 欢迎动图 ---------------- */
+function playWelcomeGif () {
+  // (A) 播音乐 —— 与同一次手势绑定
+  playBgAudio()
+
+  // (B) 切 GIF + 2 s 后淡出遮罩
+  isPlayingWelcomeGif.value = true
+  nextTick(() => {
+    setTimeout(() => {
+      showWelcomeOverlay.value  = false
+      isPlayingWelcomeGif.value = false
+    }, 2000)
+  })
+}
+
+/* -------------- 5. 进入测试主流程 ---------- */
+async function startTest () {
+  if (isLoading.value) return
+
+  // 若未登录 → 弹窗
+  if (!authStore.isLoggedIn) {                   // ← pinia getter
+    authDialogVisible.value = true
+    pendingStart = true
+    return
+  }
+
+  // 已登录 → 继续
+  await doStartTest()
+}
+
+async function onLoginSuccess () {
+  if (pendingStart) {
+    pendingStart = false
+    await doStartTest()
+  }
+}
+
+async function doStartTest () {
+  isLoading.value     = true
+  statusMessage.value = '正在请求麦克风权限，请允许…'
+  statusColor.value   = 'black'
+
+  try {
+    await testStore.ensureMicAccess()
+    sessionStorage.setItem('micGranted', '1')
+
+    // 成功后才停音乐，再跳转
+    stopAndRemoveBgAudio()
+
+    statusMessage.value = '授权成功，即将进入测试…'
+    setTimeout(() => router.push('/testing'), 800)
+  } catch (err) {
+    statusMessage.value =
+      `⚠️ ${err.message || '麦克风授权失败，无法进行语音题。'}`
+    statusColor.value = 'red'
+    setTimeout(() => {
+      isLoading.value    = false
+      statusMessage.value = ''
+    }, 2000)
+  }
+}
+
+/* -------------- 6. 页面卸载清理 ---------- */
+onBeforeUnmount(stopAndRemoveBgAudio)
+</script>
+
+<style scoped>
+/* —— 页面排版 —— */
+.start-view-content { justify-content:space-around; padding:5vh 0; gap:2rem; }
+.main-title         { font-size:2rem; color:#333; text-align:center; }
+.prompt-text        { font-size:1.2rem; color:#666; }
+
+/* —— 主按钮 —— */
+.image-button-container{
+  position:relative; cursor:pointer; border-radius:20px;
+  transition:transform .2s, box-shadow .2s;
+}
+.image-button-container:hover:not(.disabled){
+  transform:translateY(-5px); box-shadow:0 10px 20px rgba(0,0,0,.1);
+}
+.image-button-container img{
+  display:block; max-width:300px; width:100%; height:auto; border-radius:20px;
+}
+.image-button-container.disabled{ cursor:not-allowed; }
+
+/* —— 状态蒙层 —— */
+.status-overlay{
+  position:absolute; inset:0; background:rgba(255,255,255,.8);
+  display:flex; justify-content:center; align-items:center;
+  border-radius:20px; font-size:1.2rem; font-weight:700;
+  text-align:center; padding:20px;
+}
+
+/* —— 欢迎遮罩 —— */
+.welcome-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;
+  display:flex; justify-content:center; align-items:center;
+}
+.welcome-static, .welcome-gif{
+  width:340px; height:340px; border-radius:16px;
+  box-shadow:0 2px 24px #0006; background:#fff; object-fit:cover;
+}
+.welcome-static{ cursor:pointer; }
+.welcome-gif   { cursor:default; }
+</style>
+
+————————————————————————————————
+/*globalheader.vue*/
+
+<!-- src/components/common/GlobalHeader.vue -->
+<template>
+  <div class="global-header">
+    <!-- 右上角头像按钮 -->
+    <div class="header-avatar" @click="toggleMenu">
+      <img :src="avatarIcon" alt="user" />
+    </div>
+
+    <!-- 头像弹窗菜单 -->
+    <transition name="fade">
+      <div v-if="menuOpen" class="header-menu" @click.self="closeMenu">
+        <div class="menu-content">
+          <template v-if="!isLoggedIn">
+            <button class="menu-btn" @click="showLogin">登录</button>
+            <button class="menu-btn" @click="showRegister">注册</button>
+          </template>
+          <template v-else>
+            <div class="user-info">
+              <div class="user-name">
+                <span>{{ displayName }}</span>
+              </div>
+            </div>
+            <button class="menu-btn" @click="logout">退出登录</button>
+          </template>
+          <div class="menu-divider"></div>
+          <button class="menu-btn" @click="switchLang">
+            <span class="lang-icon"></span>{{ langLabel }}
+          </button>
+        </div>
+      </div>
+    </transition>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useUiStore }   from '@/store/ui'
+import { useAuthStore } from '@/services/auth'
+
+const ui   = useUiStore()
+const auth = useAuthStore()
+const menuOpen = ref(false)
+
+const avatarIcon = 'https://static.bluebirdabc.com/ai-agent/img/tasks/fd9a61b7fd669ef8586e8d7ae2915dd5fb8c89b4.png' // 头像icon
+
+const isLoggedIn  = computed(() => !!auth.user && !!auth.user.token)
+const displayName = computed(() => auth.user?.nickname || auth.user?.username || '未登录')
+const langLabel   = computed(() => ui.lang === 'en' ? 'English' : '中文')
+
+// 菜单控制
+function toggleMenu() { menuOpen.value = !menuOpen.value }
+function closeMenu () { menuOpen.value = false }
+
+// 操作
+function showLogin()    { ui.showAuthDialog('login');    closeMenu() }
+function showRegister() { ui.showAuthDialog('register'); closeMenu() }
+function switchLang()   { ui.setLang(ui.lang === 'en' ? 'zh-CN' : 'en'); closeMenu() }
+function logout() {
+  auth.logout?.()
+  window.location.href = '/'   // 可自定义为router.push('/')
+  closeMenu()
+}
+
+// 点击外部关闭
+function handleClickOutside(e) {
+  const menu   = document.querySelector('.header-menu')
+  const avatar = document.querySelector('.header-avatar')
+  if (menuOpen.value && !menu?.contains(e.target) && !avatar?.contains(e.target)) {
+    closeMenu()
+  }
+}
+onMounted      (() => window.addEventListener('mousedown', handleClickOutside))
+onBeforeUnmount(() => window.removeEventListener('mousedown', handleClickOutside))
+</script>
+
+<style scoped>
+.global-header {
+  position: absolute;
+  top: 10px; right: 22px;
+  z-index: 100;
+  user-select: none;
+  /* 移动端适配：居右顶端不遮挡内容 */
+}
+.header-avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #f4f8fb;
+  box-shadow: 0 2px 10px #0001;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1.5px solid #eee;
+  transition: box-shadow .2s;
+}
+.header-avatar img {
+  width: 60%; height: 60%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.header-avatar:hover {
+  box-shadow: 0 4px 20px #0002;
+}
+.header-menu {
+  position: absolute;
+  right: 0;
+  top: 54px;
+  min-width: 148px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 6px 32px #0003;
+  padding: 10px 0 6px 0;
+  z-index: 1000;
+}
+.menu-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 18px 6px 18px;
+}
+.menu-btn {
+  appearance: none;
+  background: #f5f7fa;
+  border: none;
+  outline: none;
+  border-radius: 9px;
+  margin: 0 0 2px 0;
+  padding: 9px 0;
+  font-size: 1.08rem;
+  font-family: inherit;
+  color: #222;
+  cursor: pointer;
+  transition: background .18s;
+}
+.menu-btn:hover {
+  background: #e6f0ff;
+}
+.menu-divider {
+  height: 1px;
+  background: #eef0f5;
+  margin: 7px 0;
+  border-radius: 2px;
+}
+.user-info {
+  text-align: center;
+  padding: 4px 0 2px 0;
+}
+.user-name {
+  font-size: 1.04em;
+  color: #2a2a2a;
+  margin-bottom: 3px;
+  font-weight: bold;
+  word-break: break-all;
+}
+.lang-icon {
+  display: inline-block;
+  vertical-align: -3px;
+  margin-right: 7px;
+  width: 20px; height: 20px;
+  background: url('https://static.bluebirdabc.com/ai-agent/img/tasks/a3028eb8b4a6021cb80e0d55e2cf273056df8f69.png') no-repeat center/contain;
+}
+.fade-enter-active, .fade-leave-active { transition: opacity .19s; }
+.fade-enter-from, .fade-leave-to       { opacity: 0; }
+
+/* 移动端弹窗优化 */
+@media (max-width: 600px) {
+  .global-header { top: 8px; right: 8px; }
+  .header-menu   { right: 0; top: 50px; min-width: 120px; border-radius: 14px; }
+  .header-avatar { width: 38px; height: 38px; }
+}
+</style>
+
+————————————————————————————————————
+
+/*App.vue的代码*/
+
+<!-- src/App.vue -->
+<template>
+  <!-- 背景格栅 -->
+  <div class="background-grid"></div>
+  <!-- 绿色大卡片叠加效果 -->
+  <div class="main-card-background"></div>
+  <div class="main-card-wrapper">
+    <!-- 顶栏模拟浏览器窗口 -->
+    <header class="card-header">
+      <div class="window-buttons">
+        <span class="btn red"></span>
+        <span class="btn yellow"></span>
+        <span class="btn green"></span>
+      </div>
+      <div class="header-title">
+        Standardized English Proficiency Exam
+      </div>
+      <div class="header-right">
+        <GlobalHeader />
+      </div>
+    </header>
+    <!-- 卡片内容区域 -->
+    <div class="card-content">
+      <router-view @update-submit-status="updateSubmitStatus" />
+      <!-- /testing 页统一提交按钮 -->
+      <div v-if="isTestingPage" class="footer-submit-area">
+        <div
+          class="image-submit-button"
+          :class="{ disabled: isSubmitDisabled }"
+          @click="triggerSubmit"
+        >
+          <img :src="submitButtonImage" alt="提交" />
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import GlobalHeader from '@/components/common/GlobalHeader.vue'
+
+// 判断当前路由
+const route = useRoute()
+const isTestingPage = computed(() => route.path === '/testing')
+
+// 提交按钮逻辑
+const isSubmitDisabled = ref(true)
+const submitAction = ref(null)
+function updateSubmitStatus({ disabled, action }) {
+  isSubmitDisabled.value = disabled
+  submitAction.value = action
+}
+let sfxCoolDown = false
+const sfxSrc =
+  'https://static.bluebirdabc.com/lesson/material/aif8j9q38t4q78y4/855/bdd3410079912e0947fe25843d62f0e63ac131c2.mp3'
+function triggerSubmit() {
+  if (isSubmitDisabled.value) return
+  if (!sfxCoolDown) {
+    sfxCoolDown = true
+    new Audio(sfxSrc).play().catch(() => {})
+    setTimeout(() => (sfxCoolDown = false), 300)
+  }
+  if (typeof submitAction.value === 'function') submitAction.value()
+}
+const submitButtonImages = {
+  active: 'https://static.bluebirdabc.com/ai-agent/img/tasks/4066faff57c614344d95b1c46f0d74cb2022fd13.png',
+  disabled: 'https://static.bluebirdabc.com/ai-agent/img/tasks/4126b680c6671d6cd039fa25aedc022d49cd3815.png'
+}
+const submitButtonImage = computed(() =>
+  isSubmitDisabled.value ? submitButtonImages.disabled : submitButtonImages.active
+)
+</script>
+
+<style>
+body {
+  font-family: 'SimHei', 'Microsoft YaHei', sans-serif;
+  background: #edf5fb;
+  margin: 0;
+}
+.background-grid {
+  position: fixed;
+  inset: 0;
+  background: #edf5fb;
+  z-index: 0;
+}
+.main-card-background {
+  position: absolute;
+  top: 40px;
+  left: 40px;
+  width: 90vw;
+  max-width: 1050px;
+  height: 82vh;
+  max-height: 690px;
+  background: #84d600;
+  border-radius: 30px;
+  transform: rotate(-4deg);
+  z-index: 1;
+  box-shadow: 0 8px 24px #0001;
+}
+.main-card-wrapper {
+  position: relative;
+  width: 90vw;
+  max-width: 1050px;
+  min-height: 600px;
+  margin: 60px auto 0 auto;
+  background: #fff;
+  border-radius: 26px;
+  z-index: 2;
+  box-shadow: 0 8px 36px #0002;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶栏模拟浏览器窗口 */
+.card-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 60px;
+  background: #6fe3c1;
+  border-top-left-radius: 26px;
+  border-top-right-radius: 26px;
+  box-sizing: border-box;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.window-buttons {
+  display: flex;
+  gap: 7px;
+  margin-right: 18px;
+}
+.btn {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  margin-top: 2px;
+}
+.btn.red { background: #ff6565; }
+.btn.yellow { background: #ffc940; }
+.btn.green { background: #54e060; }
+.header-title {
+  flex: 1;
+  font-size: 1.7rem;
+  font-weight: bold;
+  color: #fff;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 10px #0002;
+  font-family: 'Comic Sans MS', 'Baloo 2', 'Microsoft YaHei', sans-serif;
+  text-align: center;
+}
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* 主体内容 */
+.card-content {
+  flex: 1;
+  padding: 36px 5vw 18px 5vw;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 提交按钮区 */
+.footer-submit-area {
+  padding: 20px;
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid #eee;
+  background-color: #fff;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+.image-submit-button { cursor: pointer; }
+.image-submit-button img {
+  height: 100px;
+  width: auto;
+  transition: transform 0.2s ease;
+}
+.image-submit-button:not(.disabled) img:hover {
+  transform: scale(1.15);
+}
+.image-submit-button.disabled { cursor: not-allowed; }
+
+/* 响应式移动端适配 */
+@media (max-width: 600px) {
+  .main-card-background, .main-card-wrapper {
+    width: 98vw;
+    min-width: 0;
+    max-width: 100vw;
+    height: auto;
+    min-height: 80vh;
+    margin: 2vw auto 0 auto;
+    border-radius: 18px;
+  }
+  .main-card-background { top: 15px; left: 10px; border-radius: 18px; }
+  .main-card-wrapper { border-radius: 18px; }
+  .card-header { border-top-left-radius: 18px; border-top-right-radius: 18px; padding: 0 12px; }
+  .card-content { padding: 18px 2vw 8px 2vw; }
+}
+</style>
+
+————————————————————————————————
+/* ui.js的代码*/
+
+import { defineStore } from 'pinia'
+
+export const useUiStore = defineStore('ui', {
+  state: () => ({
+    authDialogVisible: false,
+    authDialogMode: 'login', // 'login' | 'register'
+    lang: 'zh-CN'
+  }),
+  actions: {
+    showAuthDialog(mode = 'login') {
+      this.authDialogVisible = true
+      this.authDialogMode = mode
+    },
+    hideAuthDialog() {
+      this.authDialogVisible = false
+    },
+    setLang(lang) {
+      this.lang = lang
+    }
+  }
+})
+
+————————————————————————————————
+/* AuthDialog.vue的代码*/
+
+<!-- src/components/AuthDialog.vue -->
+<template>
+  <!-- 背景遮罩（点击空白处可关闭） -->
+  <div v-if="modelValue" class="auth-dialog-backdrop" @click.self="close">
+    <div class="auth-dialog">
+      <h2>{{ mode === 'login' ? '用户登录' : '注册新账号' }}</h2>
+      <!-- 登录 / 注册表单 -->
+      <form @submit.prevent="handleSubmit">
+        <div class="form-group">
+          <label>账号</label>
+          <input
+            v-model.trim="username"
+            name="username"
+            type="text"
+            maxlength="32"
+            autocomplete="username"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input
+            v-model.trim="password"
+            name="password"
+            type="password"
+            maxlength="32"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <!-- 注册才需要昵称 -->
+        <div class="form-group" v-if="mode === 'register'">
+          <label>昵称</label>
+          <input
+            v-model.trim="nickname"
+            name="nickname"
+            type="text"
+            maxlength="16"
+            required
+          />
+        </div>
+        <!-- 错误提示 -->
+        <p class="form-error" v-if="errMsg">{{ errMsg }}</p>
+        <!-- 提交按钮 -->
+        <button type="submit" :disabled="submitting">
+          {{ submitting ? '提交中…' : mode === 'login' ? '登录' : '注册' }}
+        </button>
+      </form>
+      <!-- 页脚小链接 -->
+      <div class="dialog-footer">
+        <a v-if="mode==='login'" @click="mode='register'">没有账号？去注册</a>
+        <a v-else @click="mode='login'">已有账号？直接登录</a>
+      </div>
+      <!-- 右上角关闭 -->
+      <span class="dialog-close" @click="close">×</span>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useAuthStore } from '@/services/auth.js'
+
+/* ---------- props / emit ---------- */
+const props = defineProps({
+  modelValue: Boolean,
+  mode: { type: String, default: 'login' } // 支持外部传入
+})
+const emit  = defineEmits(['update:modelValue', 'login-success'])
+
+/* ---------- 本地状态 ---------- */
+const mode        = ref(props.mode)
+const username    = ref('')
+const password    = ref('')
+const nickname    = ref('')
+const submitting  = ref(false)
+const errMsg      = ref('')
+
+/* ---------- Store ---------- */
+const auth = useAuthStore()
+
+/* ---------- 方法 ---------- */
+function close () {
+  emit('update:modelValue', false)
+  resetFields()
+}
+
+function resetFields () {
+  // 保持当前模式
+  username.value  = ''
+  password.value  = ''
+  nickname.value  = ''
+  errMsg.value    = ''
+  submitting.value= false
+}
+
+async function handleSubmit () {
+  if (!username.value || !password.value || (mode.value==='register' && !nickname.value)) {
+    errMsg.value = '请填写所有必填项'
+    return
+  }
+
+  submitting.value = true
+  errMsg.value     = ''
+  try {
+    if (mode.value === 'login') {
+      await auth.login({ username: username.value, password: password.value })
+    } else {
+      await auth.register({
+        username: username.value,
+        password: password.value,
+        nickname: nickname.value
+      })
+    }
+    emit('login-success')
+    close()
+  } catch (e) {
+    errMsg.value = e.message || '操作失败，请稍后重试'
+  } finally {
+    submitting.value = false
+  }
+}
+
+/* ---------- ESC 关闭 ---------- */
+function onKeydown (e) {
+  if (props.modelValue && e.key === 'Escape') close()
+}
+onMounted      (() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
+/* 支持 props 动态切换模式 */
+watch(() => props.mode, (val) => { if (val) mode.value = val })
+/* 弹窗打开时重置表单 */
+watch(() => props.modelValue, val => { if (val) resetFields() })
+</script>
+
+<style scoped>
+.auth-dialog-backdrop{
+  position:fixed;inset:0;z-index:10000;
+  background:rgba(0,0,0,.28);
+  display:flex;align-items:center;justify-content:center;
+}
+.auth-dialog{
+  background:#fff;border-radius:16px;min-width:340px;
+  padding:36px 32px 24px;box-shadow:0 8px 36px #0002;
+  position:relative;animation:fade .32s;
+}
+@keyframes fade{from{transform:scale(.9);opacity:0}}
+h2{margin:0 0 20px;text-align:center;font-size:1.35rem;color:#333}
+.form-group{margin-bottom:18px}
+.form-group label{font-size:1rem;color:#555;margin-bottom:4px;display:block}
+.form-group input{
+  width:100%;font-size:1rem;padding:8px 10px;border:1px solid #ccc;
+  border-radius:6px;box-sizing:border-box;margin-top:2px
+}
+.form-group input:focus{border-color:#69f;outline:none}
+.form-error{color:#e74c3c;font-size:.95em;margin-bottom:10px;text-align:center}
+button[type=submit]{
+  width:100%;padding:11px 0;font-size:1.1rem;border:none;
+  background:#3772ff;color:#fff;border-radius:7px;cursor:pointer;
+  margin-top:8px;font-weight:bold;transition:background .18s
+}
+button[disabled]{background:#b2c9ee;cursor:not-allowed}
+.dialog-footer{margin-top:14px;text-align:center}
+.dialog-footer a{color:#3772ff;font-size:.98em;cursor:pointer;text-decoration:underline;margin:0 8px}
+.dialog-close{
+  position:absolute;right:18px;top:14px;font-size:1.5em;color:#aaa;
+  cursor:pointer;user-select:none;transition:color .17s
+}
+.dialog-close:hover{color:#e74c3c}
+</style>
+

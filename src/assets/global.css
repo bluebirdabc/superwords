@@ -1,0 +1,175 @@
+/* ==========================================================================
+   Global Styles - FINAL RESPONSIVE REFACTOR (z-index fix)
+   ========================================================================== */
+
+/* --- 1. 基础变量与Reset --- */
+:root {
+  --primary-color: #4A90E2;
+  --secondary-color: #F5A623;
+  --accent-color: #7ED321;
+  --header-bg: #50E3C2;
+  --card-bg: #ffffff;
+  --grid-color: #e0e0e0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; min-height: 100vh; font-family: "Comic Sans MS", Arial, sans-serif; background: #f0f8ff; }
+
+/* --- 2. 背景网格 --- */
+.background-grid { position: fixed; inset: 0; z-index: -1; background-image: linear-gradient(to right, var(--grid-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px); background-size: 30px 30px; }
+
+/* --- 3. 核心布局容器 --- */
+main.card-wrapper { display: flex; justify-content: center; align-items: center; width: 100%; min-height: 100vh; padding: 60px 20px; }
+
+/* --- 4. 唯一的卡片 --- */
+.card-front {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  background: transparent; 
+  border-radius: 20px;
+  box-shadow: 5px 5px 20px rgba(0,0,0,.2);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  height: auto; 
+  overflow: visible;
+}
+
+/* --- 5. 背景伪元素 --- */
+.card-front::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: inherit;
+  transform: rotate(-4deg);
+  z-index: -1; 
+}
+
+/* --- 6. 卡片内部布局 --- */
+.card-internal-wrapper {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  background: var(--card-bg);
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  background: var(--header-bg);
+  color: #fff;
+  padding: 12px 20px;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+.window-buttons { display: flex; gap: 8px; }
+.btn { width: 12px; height: 12px; border-radius: 50%; }
+.btn.red { background: #ff5f56; } .btn.yellow { background: #ffbd2e; } .btn.green { background: #27c93f; }
+.header-title { flex: 1; text-align: center; font-weight: bold; font-size: 1.5rem; }
+
+.question-content {
+  flex-grow: 1;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- 7. 移动端响应式覆盖 --- */
+@media (max-width: 768px) {
+  main.card-wrapper { padding: 16px; }
+  .card-front::before { display: none; }
+  .card-front {
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    background: var(--card-bg);
+  }
+  .card-internal-wrapper {
+    background: transparent;
+    overflow: visible;
+  }
+  .header-title { font-size: 1.2rem; }
+  .question-content { padding: 24px 16px; }
+}
+
+/* ==========================================================================
+   3D Submit Button Style (保留，供未来备用)
+   ========================================================================== */
+.submit-button-3d {
+  position: relative;
+  width: 120px;
+  height: 50px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  outline-offset: 4px;
+  transition: filter 0.3s;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+}
+.submit-button-3d .button-front {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: #f56565;
+  color: white;
+  font-size: 1.25rem;
+  font-weight: bold;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 2px solid #c53030;
+  transform: translateY(-6px);
+  transition: transform 0.2s;
+}
+.submit-button-3d:hover .button-front {
+  transform: translateY(-8px);
+}
+.submit-button-3d:active .button-front {
+  transform: translateY(-2px);
+  transition: transform 34ms;
+}
+.submit-button-3d:disabled {
+  background: #c7c7c7;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+.submit-button-3d:disabled .button-front {
+  background: #a0aec0;
+  border-color: #718096;
+  transform: translateY(-2px);
+}
+
+/* ==========================================================================
+   通用图片提交按钮样式 (Universal Image Submit Button)
+   ========================================================================== */
+.image-submit-button {
+  margin-top: 20px;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+.image-submit-button img {
+  height: 100px;
+  width: auto;
+  transition: transform 0.2s ease;
+  vertical-align: middle; 
+}
+.image-submit-button:not(.disabled) img:hover {
+  transform: scale(1.15);
+}
+.image-submit-button.disabled {
+  cursor: not-allowed;
+}

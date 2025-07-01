@@ -1,0 +1,105 @@
+{
+  "code": 0,
+  "msg": "OK",
+  "data": {
+    "type":     //返回数据类型：0：正常训练；1：定级测试
+    "index": 1,   //返回测试数据索引：只对定级测试起作用，表示现在是第几次请求定级测试题包，如果是最后一个题包，则返回-1
+ 
+    "user_id": 10000
+    "user_id": 123,
+    "level": 99,    //新的级别（可能升降，也可能保持不变）
+    "accuracy": 90.2,   //新的词汇正确率
+    "score": {    //重新计算的能力雷达指数[0~10]
+      "vocabulary": 8.2, //  词汇
+      "listening" : 7.3,   //  听
+      "speaking"  : 7.3,  //  说
+      "reading"   : 7.5,  //  读
+      "writing"   : 9.6   //  写
+      "level_comment": "string",   //总体能力
+      "vocabulary_comment": "string", //单词评语
+      "listening_comment": "string",  //听力评语
+      "speaking_comment": "string",  //口语评语
+      "reading_comment": "string",  //阅读评语
+      "writing_comment": "string"  //写作评语
+      "summary_comment": "string"  //总结评语
+    },
+    "results": [    //上一次提交的试题的判分结果
+      {
+        "quiz_id": 234,  //题号
+        "result": true   //是否正确: true=正确，false=错误
+      },
+      {
+        //更多题目的判分结果
+      }
+    ],
+    "scene": {    //一个大关卡
+      "stages": [   //所有的小关卡，把所有的题放在一个小关卡中
+        {
+          "type": 0,  //关卡类型：未使用，直接写0
+          "title":    //关卡标题：未使用，直接为””,
+          "subTitle":  //子标题：未使用，直接为””,
+          "quizzes": [   //新的试题列表
+            {
+              "word": "help",
+              "word_trans": "学习",
+              "quiz_id": 334,
+              "quiz_type_id": 1,
+              "quiz_type_name": "阅读完形填空",
+              "quiz_title": "试题标题",
+              "quiz_body": "T_____ new policy w____ c____ m____ low-income families.",
+              "quiz_note": "",
+              "quiz_trans": "新政策有利于低收入家庭。",
+              "quiz_audio": "https://xxx.com/title.mp3",
+              "quiz_audio_text": "string",
+              "quiz_option": [
+                "create",
+                "created",
+                "creates",
+                "creating"
+              ],
+              "answer": ["create","created"],
+              "replace_id": 1
+            },
+            {
+              //...更多quiz
+            }
+          ],
+          "toolType": 0,    //未使用，直接为0,
+          "challengeType": 0,   //未使用，直接为0,
+          "challengeWords": {   //未使用，直接为0,
+            "additionalProp1": "string", //未使用，直接为0,
+            "additionalProp2": "string", //未使用，直接为0,
+            "additionalProp3": "string" //未使用，直接为0,
+          }, 
+          "gagaType": 0    //未使用，直接为0,
+        }
+      ],
+      "replace_quizzes": [ //备选试题列表
+        {
+          "word": "help",
+          "word_trans": "学习",
+          "quiz_id": 334,
+          "quiz_type_id": 1,
+          "quiz_type_name": "阅读完形填空",
+          "quiz_title": "试题标题",
+          "quiz_body": "T_____ new policy w____ c____ m____ low-income families.",
+          "quiz_note": "",
+          "quiz_trans": "新政策有利于低收入家庭。",
+          "quiz_audio": "https://xxx.com/title.mp3",
+          "quiz_audio_text": "string",
+          "quiz_option": [
+            "create",
+            "created",
+            "creates",
+            "creating"
+          ],
+          "answer": ["create","created"],
+          "replace_id": 1
+        },
+        {
+          //...更多Quiz
+        }
+      ]
+    }
+  }
+}
