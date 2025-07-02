@@ -5,7 +5,7 @@ import TestingView from '../views/TestingView.vue'
 import ResultView  from '../views/ResultView.vue'
 
 // 【关键】引入 useAuthStore
-import { useAuthStore } from '@/services/auth'
+import { useAuthStore } from '@/auth'
 
 const router = createRouter({
   // ✅ 改为 hash 模式，解决 nginx 404 问题

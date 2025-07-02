@@ -34,7 +34,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useUiStore }   from '@/store/ui'
-import { useAuthStore } from '@/services/auth'
+import { useAuthStore } from '@/auth'
 
 const ui = useUiStore()
 const auth = useAuthStore()

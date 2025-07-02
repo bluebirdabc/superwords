@@ -54,7 +54,7 @@
 import { ref, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter }    from 'vue-router'
 import { useTestStore } from '@/store/test'
-import { useAuthStore } from '@/services/auth'
+import { useAuthStore } from '@/auth'
 import AuthDialog       from '@/components/common/AuthDialog.vue'
 
 /* -------------- 1. 资源常量 ---------------- */
