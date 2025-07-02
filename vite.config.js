@@ -21,6 +21,18 @@ export default defineConfig(({ mode }) => {
       }
     },
 
+    // 开发服务器配置
+    server: {
+      proxy: {
+        '/api': {
+          target: 'https://readapi.bluebirdabc.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api/, '')
+        }
+      }
+    },
+
     build: {
       rollupOptions: {
         output: {

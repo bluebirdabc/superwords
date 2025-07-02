@@ -132,18 +132,27 @@ async function doStartTest () {
     sessionStorage.setItem('micGranted', '1')
 
     statusMessage.value = '正在获取题包，请稍候…'
+    // 临时方案：不管题包获取成功失败都继续进入测试页面
     await testStore.fetchQuestionPacket()
 
     stopAndRemoveBgAudio()
     statusMessage.value = '准备完成，即将进入测试…'
     setTimeout(() => router.push('/testing'), 800)
   } catch (err) {
-    statusMessage.value = `⚠️ ${err.message || '无法继续测试。'}`
-    statusColor.value = 'red'
-    setTimeout(() => {
-      isLoading.value = false
-      statusMessage.value = ''
-    }, 2000)
+    // 只有麦克风权限失败才显示错误，题包获取失败不影响流程
+    if (err.message && err.message.includes('麦克风')) {
+      statusMessage.value = `⚠️ ${err.message || '无法继续测试。'}`
+      statusColor.value = 'red'
+      setTimeout(() => {
+        isLoading.value = false
+        statusMessage.value = ''
+      }, 2000)
+    } else {
+      // 其他错误也继续进入测试页面
+      stopAndRemoveBgAudio()
+      statusMessage.value = '准备完成，即将进入测试…'
+      setTimeout(() => router.push('/testing'), 800)
+    }
   }
 }
 

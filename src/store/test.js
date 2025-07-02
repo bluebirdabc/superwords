@@ -59,12 +59,15 @@ export const useTestStore = defineStore('test', {
       }
     },
 
-    /** ✅ 默认拉取一个题包（用于登录成功或继续学习时） */
+    /** ✅ 默认拉取一个题包（用于登录成功或继续学习时）
+     * 临时方案：不管get-words-quizzes接口成功失败都继续执行，不中断流程
+     */
     async fetchQuestionPacket() {
       const auth = useAuthStore()
       const user = auth.user
       if (!user || !user.token || !user.userId) {
-        throw new Error('请先登录2')
+        console.warn('用户未登录，跳过题包获取')
+        return
       }
 
       const userId = user.userId
@@ -82,7 +85,7 @@ export const useTestStore = defineStore('test', {
       const sign = sha1(signInput)
 
       try {
-        const res = await fetch('https://readapi.bluebirdabc.com/api/question-packet', {
+        const res = await fetch('/api/learn-words/get-words-quizzes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -98,7 +101,8 @@ export const useTestStore = defineStore('test', {
         const raw = await res.json()
 
         if (raw.code !== 0) {
-          throw new Error(raw.msg || '题包获取失败')
+          console.warn('题包获取失败，但继续执行:', raw.msg)
+          return // 临时方案：不抛出错误，直接返回
         }
 
         const { parsePacket } = await import('@/api/parser.js')
@@ -107,9 +111,10 @@ export const useTestStore = defineStore('test', {
         this.packet = parsed
         this.currentQuestionIndex = 0
         this.userAnswers = {}
+        console.log('题包获取成功')
       } catch (err) {
-        console.error('题包获取失败：', err)
-        throw new Error(err.message || '题包获取失败，请稍后重试')
+        console.warn('题包获取异常，但继续执行:', err)
+        // 临时方案：不抛出错误，让流程继续
       }
     },
 

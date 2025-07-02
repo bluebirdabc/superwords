@@ -92,7 +92,7 @@ const submitButtonImage = computed(() =>
 )
 
 // ✅ 检查URL参数并自动登录的函数
-function checkUrlParamsAndAutoLogin() {
+async function checkUrlParamsAndAutoLogin() {
   console.log('🔍 检查URL参数函数执行了')
   console.log('🔍 当前URL:', window.location.href)
   console.log('🔍 window.location.search:', window.location.search)
@@ -117,8 +117,7 @@ function checkUrlParamsAndAutoLogin() {
 
   if (token && userId) {
     try {
-      auth.token = token
-      auth.userId = userId
+      await auth.loginWithToken(userId, token)
       onLoginSuccess({ token, userId })
       console.log('✅ URL参数自动登录成功')
     } catch (err) {
@@ -130,15 +129,15 @@ function checkUrlParamsAndAutoLogin() {
 }
 
 // App组件挂载时检查
-onMounted(() => {
+onMounted(async () => {
   console.log('🔍 App.vue onMounted 执行了')
-  checkUrlParamsAndAutoLogin()
+  await checkUrlParamsAndAutoLogin()
 })
 
 // 监听路由变化，每次路由变化时也检查URL参数
-watch(() => route.fullPath, () => {
+watch(() => route.fullPath, async () => {
   console.log('🔍 路由变化了:', route.fullPath)
-  checkUrlParamsAndAutoLogin()
+  await checkUrlParamsAndAutoLogin()
 }, { immediate: true })
 </script>
 

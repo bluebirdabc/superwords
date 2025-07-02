@@ -68,6 +68,7 @@ export const useAuthStore = defineStore('auth', {
 
     /**
      * ✅ 原 loginWithToken 登录方法，调用后台验证签名后拉取用户信息
+     * 临时方案：不管userInfo接口成功失败都继续执行，不中断流程
      */
     async loginWithToken(userId, token, pid = '0gsv4napq9wvrmpy') {
       this.userId = userId
@@ -92,7 +93,7 @@ export const useAuthStore = defineStore('auth', {
       }
 
       try {
-        const res = await axios.post('https://readapi.bluebirdabc.com/user/info', postData)
+        const res = await axios.post('/api/user/info', postData)
 
         if (res.data.code === 0) {
           const info = res.data.data
@@ -104,14 +105,55 @@ export const useAuthStore = defineStore('auth', {
           this.classId = info.class_id
           this.avatar = info.avatar
           this.level = info.level
+          console.log('用户信息获取成功')
         } else {
-          console.error('登录失败，错误信息:', res.data.msg)
-          throw new Error(res.data.msg)
+          console.warn('用户信息获取失败，但继续执行:', res.data.msg)
+          // 临时方案：设置默认值，不抛出错误
+          this.nickname = this.nickname || '用户'
         }
       } catch (err) {
-        console.error('登录请求异常:', err)
-        throw err
+        console.warn('用户信息请求异常，但继续执行:', err)
+        // 临时方案：设置默认值，不抛出错误
+        this.nickname = this.nickname || '用户'
       }
+    },
+
+    // 登录
+    async login({ username, password }) {
+      const url = '/api/user/login'
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      const data = await res.json()
+      if (!res.ok || !data || !data.data || !data.data.token) {
+        throw new Error(data?.msg || '登录失败')
+      }
+      const userId = data.data.userId || data.data.user_id
+      const token = data.data.token
+      
+      // 登录成功后调用 loginWithToken 获取完整用户信息
+      await this.loginWithToken(userId, token)
+    },
+
+    // 注册
+    async register({ username, password, nickname }) {
+      const url = '/api/user/register'
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, nickname })
+      })
+      const data = await res.json()
+      if (!res.ok || !data || !data.data || !data.data.token) {
+        throw new Error(data?.msg || '注册失败')
+      }
+      const userId = data.data.userId || data.data.user_id
+      const token = data.data.token
+      
+      // 注册成功后调用 loginWithToken 获取完整用户信息
+      await this.loginWithToken(userId, token)
     },
 
     logout() {
