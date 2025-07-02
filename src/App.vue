@@ -46,7 +46,7 @@ import { useRoute, useRouter } from 'vue-router'
 import GlobalHeader from '@/components/common/GlobalHeader.vue'
 import AuthDialog from '@/components/common/AuthDialog.vue'
 import { useUiStore } from '@/store/ui'
-import { useAuthStore } from '@/auth'
+import { useAuthStore } from '@/services/auth'
 
 const ui = useUiStore()
 const auth = useAuthStore()

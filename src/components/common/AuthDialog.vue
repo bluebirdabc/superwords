@@ -56,7 +56,7 @@
 
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useAuthStore } from '@/auth.js'
+import { useAuthStore } from '@/services/auth.js'
 
 /* ---- props/emit ---- */
 const props = defineProps({

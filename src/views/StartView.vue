@@ -48,7 +48,7 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTestStore } from '@/store/test'
-import { useAuthStore } from '@/auth'
+import { useAuthStore } from '@/services/auth'
 import AuthDialog from '@/components/common/AuthDialog.vue'
 
 const staticImg  = 'https://static.bluebirdabc.com/ai-agent/img/tasks/37cec56a342d0c475dcebd44655c21489ace9560.png'

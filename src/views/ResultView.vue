@@ -22,7 +22,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTestStore } from '@/store/test'
-import { useAuthStore } from '@/auth'
+import { useAuthStore } from '@/services/auth'
 
 const router = useRouter()
 const testStore = useTestStore()

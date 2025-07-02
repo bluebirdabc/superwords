@@ -5,7 +5,7 @@ import TestingView from '../views/TestingView.vue'
 import ResultView  from '../views/ResultView.vue'
 
 // 【关键】引入 useAuthStore
-import { useAuthStore } from '@/auth'
+import { useAuthStore } from '@/services/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

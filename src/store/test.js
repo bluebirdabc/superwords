@@ -1,7 +1,7 @@
 // src/store/test.js
 import { defineStore } from 'pinia'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/auth.js'
+import { useAuthStore } from '@/services/auth.js'
 import sha1 from 'js-sha1'
 
 export const useTestStore = defineStore('test', {
