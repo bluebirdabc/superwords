@@ -1,8 +1,9 @@
 // src/api/exam.js
 
 import { parseQuestionPacket } from './parser'
+import { API_BASE_URL } from '@/config/env'
 
-const API_BASE = '/api' // 根据部署环境适配：开发环境可为 /api，线上环境可能是完整域名
+const API_BASE = API_BASE_URL // 根据部署环境自动适配：开发环境为 /api，线上环境为空
 
 /**
  * 获取题包：首次登录拉定级题，非首次拉常规学习题

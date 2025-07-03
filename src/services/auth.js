@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { sha1 } from 'js-sha1'
 import axios from 'axios'
+import { API_CONFIG } from '@/config/env'
 
 function generateStringA(userId) {
   const base = userId.toString()
@@ -93,7 +94,7 @@ export const useAuthStore = defineStore('auth', {
       }
 
       try {
-        const res = await axios.post('/api/user/info', postData)
+        const res = await axios.post(API_CONFIG.USER_INFO, postData)
 
         if (res.data.code === 0) {
           const info = res.data.data
@@ -120,7 +121,7 @@ export const useAuthStore = defineStore('auth', {
 
     // 登录
     async login({ username, password }) {
-      const url = '/api/user/login'
+      const url = API_CONFIG.USER_LOGIN
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -139,7 +140,7 @@ export const useAuthStore = defineStore('auth', {
 
     // 注册
     async register({ username, password, nickname }) {
-      const url = '/api/user/register'
+      const url = API_CONFIG.USER_REGISTER
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
